@@ -11,6 +11,8 @@ import System.IO
 import Control.Monad
 import Data.Char
 import System.Environment
+import Safe
+import Text.Read
 
 data Year = Year Int
      deriving (Eq, Ord, Generic)
@@ -25,11 +27,14 @@ instance Show Year where
 
 instance Read Year where
     readsPrec _ input =
-        let (year, rest) = span isDigit input in
-        if take 5 rest == " b.c." then
-            [(Year (negate . read $ year), drop 5 rest)]
-        else
-            [(Year . read $ year, rest)]
+        case readMaybe year of
+            Just year ->
+                if " b.c." `isPrefixOf` rest then
+                    [(Year $ negate year, drop 5 rest)]
+                else
+                    [(Year year, rest)]
+            Nothing   -> []
+        where (year, rest) = span isDigit input
 
 
 data YearDelta = YearDelta Int
@@ -81,17 +86,18 @@ readBooksFile = Lazy.readFile booksFile
 readBooks :: IO (Either String [Book])
 readBooks = (eitherDecode <$> readBooksFile)
 
+getFilter :: [String] -> (String, String, Maybe Year)
+getFilter arguments = (getArgument "author", getArgument "title", readMaybe $ getArgument "published" :: Maybe Year)
+    where getArgument argument
+            = drop (length argument + 3) $ getArgumentUnstripped argument
+          getArgumentUnstripped argument
+            = map toLower $ headDef "" $ filteredArguments argument
+          filteredArguments argument
+            = filter (("--" ++ argument ++ "=") `isPrefixOf`) arguments
+
 printBooks :: [String] -> IO ()
 printBooks arguments = do
-    
-    let author_filter
-            = map toLower $ fromMaybe "" $ listToMaybe author_predicates
-                where author_predicates
-                        = filter ("--author=" `isPrefixOf`) arguments
-    let title_filter
-            = map toLower $ fromMaybe "" $ listToMaybe title_predicates
-                where title_predicates
-                        = filter ("--title=" `isPrefixOf`) arguments
+    let (authorFilter, titleFilter, publishFilter) = getFilter arguments
     books <- readBooks
 
     case books of 
@@ -100,11 +106,16 @@ printBooks arguments = do
         Right books
             -> mapM_ print $ filter predicate books
                 where predicate book
-                        = (drop 9 author_filter) `isSubsequenceOf` author_name
+                        = authorFilter `isSubsequenceOf` authorName
                           &&
-                          (drop 8 title_filter) `isSubsequenceOf` book_title
-                            where author_name = map toLower $ name $ author book
-                                  book_title = map toLower $ title book
+                          titleFilter `isSubsequenceOf` bookTitle
+                          &&
+                          publishFilter == Nothing
+                          ||
+                          publishFilter == Just publishDate
+                            where authorName = map toLower $ name $ author book
+                                  bookTitle = map toLower $ title book
+                                  publishDate = published book
     return ()
 
 writeBooks :: [Book] -> IO ()
