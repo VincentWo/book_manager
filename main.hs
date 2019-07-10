@@ -13,6 +13,8 @@ import Data.Char
 import System.Environment
 import Safe
 import Text.Read
+import qualified Data.Map as Map
+import Data.Tuple.Lazy
 
 data Year = Year Int
      deriving (Eq, Ord, Generic)
@@ -95,9 +97,11 @@ getFilter arguments = (getArgument "author", getArgument "title", readMaybe $ ge
           filteredArguments argument
             = filter (("--" ++ argument ++ "=") `isPrefixOf`) arguments
 
-printBooks :: [String] -> IO ()
-printBooks arguments = do
-    let (authorFilter, titleFilter, publishFilter) = getFilter arguments
+printBooks :: [String] -> Map.Map String String -> IO ()
+printBooks _ arguments = do
+    let authorFilter  = fmap toLower $ Map.lookup "author" arguments
+        titleFilter   = Map.lookup "title" arguments
+        publishFilter = readMaybe $ Map.lookup "published" arguments :: Maybe Year
     books <- readBooks
 
     case books of 
@@ -122,8 +126,8 @@ writeBooks :: [Book] -> IO ()
 writeBooks books = 
     Lazy.writeFile booksFile $ encode $ sort books
 
-addBook :: [String] -> IO ()
-addBook (title:published:name:birth:death:_) = do
+addBook :: [String] -> Map.Map String String -> IO ()
+addBook (title:published:name:birth:death:_) _ = do
 
     let author = Author name (read birth :: Year) (Just $ read death :: Maybe Year)
     let book = Book title author $ read published
@@ -133,23 +137,30 @@ addBook (title:published:name:birth:death:_) = do
         Left error  -> do putStrLn error
         Right books -> do writeBooks (book : books)
                           putStrLn "Buch wurde erfolgreich hinzugefügt"
-addBook _ = do
+addBook _ _ = do
     putStrLn "Nicht genügend Argumente"
 
 unknownAction :: String -> IO ()
 unknownAction action =
     putStrLn $ "Unbekannte Aktion: " ++ action
 
-dispatch :: String -> [String] -> IO ()
-dispatch "view" = printBooks
-dispatch "add"  = addBook
-dispatch action = const (unknownAction action)
+dispatch :: [String] -> Map.Map String String -> IO ()
+dispatch ("view" : actions) = printBooks actions
+dispatch ("add"  : actions) = addBook actions
+dispatch (action : _)       = const (unknownAction action)
 
+
+parseParameters :: [String] -> ([String], Map.Map String String)
+parseParameters parameters = (actions, arguments)
+    where
+        arguments = Map.fromList $ map (mapSnd tail . break (== '=')) argumentsList
+        (actions, argumentsList) = partition ("--" `isPrefixOf`) parameters 
 main :: IO ()
 main = do
-    arguments <- getArgs
-    case arguments of
-        (action:parameters)
-            -> dispatch action parameters
-        []                 
+    parameters <- getArgs
+    let (actions, arguments) = parseParameters parameters
+    case actions of
+        []
             -> putStrLn "Bitte gib eine Aktion an."
+        actions
+            -> dispatch actions arguments 
