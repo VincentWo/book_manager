@@ -6,7 +6,6 @@ import Data.List
 import Data.Maybe
 import GHC.Generics
 import qualified Data.ByteString.Lazy as Lazy
-import Data.Char (isDigit)
 import System.IO
 import Control.Monad
 import Data.Char
@@ -74,8 +73,10 @@ instance Show Book where
 instance Ord Book where
     (Book titleA _ _) `compare` (Book titleB _ _) = titleA `compare` titleB
 
-günther_grass = Author "Günther Grass" (Year 1927) $ Just $ Year 2015
-blech_trommel = Book "Die Blechtrommel" günther_grass $ Year 1959
+helpString :: IO String
+helpString = do
+    progName <- getProgName
+    return $ "Usage: " ++ progName ++ " action [arguments...]\n"
 
 booksFile :: FilePath
 booksFile = "books.json"
@@ -123,9 +124,9 @@ writeBooks books =
     Lazy.writeFile booksFile $ encode $ sort books
 
 addBook :: [String] -> IO ()
-addBook (title:published:name:birth:death:_) = do
-
-    let author = Author name (read birth :: Year) (Just $ read death :: Maybe Year)
+addBook (title:published:name:birth:arguments) = do
+    let death = listToMaybe arguments
+    let author = Author name (read birth :: Year) (read <$> death :: Maybe Year)
     let book = Book title author $ read published
 
     current_books <- readBooks
@@ -133,12 +134,15 @@ addBook (title:published:name:birth:death:_) = do
         Left error  -> do putStrLn error
         Right books -> do writeBooks (book : books)
                           putStrLn "Buch wurde erfolgreich hinzugefügt"
+
 addBook _ = do
     putStrLn "Nicht genügend Argumente"
+    helpString >>= putStr
 
 unknownAction :: String -> IO ()
-unknownAction action =
+unknownAction action = do
     putStrLn $ "Unbekannte Aktion: " ++ action
+    helpString >>= putStr
 
 dispatch :: String -> [String] -> IO ()
 dispatch "view" = printBooks
@@ -152,4 +156,6 @@ main = do
         (action:parameters)
             -> dispatch action parameters
         []                 
-            -> putStrLn "Bitte gib eine Aktion an."
+            -> do
+                putStrLn "Bitte gib eine Aktion an."
+                helpString >>= putStr
