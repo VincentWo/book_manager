@@ -87,14 +87,29 @@ readBooksFile = Lazy.readFile booksFile
 readBooks :: IO (Either String [Book])
 readBooks = (eitherDecode <$> readBooksFile)
 
+split :: Eq a => a -> [a] -> ([a], [a])
+split x (y:ys)
+    | x == y    = ([], ys)
+    | otherwise = (y : ys1, ys2)
+    where (ys1, ys2) = split x ys
+
+split _ [] = ([], [])
+
+getOptions :: [String] -> [(String, String)]
+getOptions = map $ dropFst . split '='
+    where dropFst (x,y) = (drop 2 x, y)
+
 getFilter :: [String] -> (String, String, Maybe Year)
-getFilter arguments = (getArgument "author", getArgument "title", readMaybe $ getArgument "published" :: Maybe Year)
-    where getArgument argument
-            = drop (length argument + 3) $ getArgumentUnstripped argument
-          getArgumentUnstripped argument
-            = map toLower $ headDef "" $ filteredArguments argument
-          filteredArguments argument
-            = filter (("--" ++ argument ++ "=") `isPrefixOf`) arguments
+getFilter arguments =
+    (fromMaybe "" $ getArgument "author",
+     fromMaybe "" $ getArgument "title",
+     getArgument "published" >>= readMaybe :: Maybe Year)
+    where
+        getArgument
+            = liftM fst . lastMay . filteredOptions
+        filteredOptions flag
+            = filter ((== flag) . fst) $ getOptions arguments
+
 
 printBooks :: [String] -> IO ()
 printBooks arguments = do
@@ -159,3 +174,4 @@ main = do
             -> do
                 putStrLn "Bitte gib eine Aktion an."
                 helpString >>= putStr
+
