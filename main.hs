@@ -14,6 +14,7 @@ import Safe
 import Text.Read
 import qualified Data.Map as Map
 import Data.Tuple.Lazy
+import System.IO.Error
 
 data Year = Year Int
      deriving (Eq, Ord, Generic)
@@ -92,8 +93,11 @@ getFilename = maybe defaultFile id . Map.lookup "data"
 
 readBooks :: Map.Map String String -> IO (Either String [Book])
 readBooks arguments = 
-        eitherDecode <$> file
-            where file = Lazy.readFile $ getFilename arguments
+        eitherDecode <$> catchIOError content handler
+            where content = Lazy.readFile $ getFilename arguments
+                  handler catched
+                    | isDoesNotExistError catched = return "[]"
+                    | otherwise                   = ioError catched
 
 
 printBooks :: [String] -> Map.Map String String -> IO ()
