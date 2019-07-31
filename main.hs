@@ -12,15 +12,18 @@ import Data.Char
 import System.Environment
 import Safe
 import Text.Read
+import qualified Data.Map as Map
+import Data.Tuple.Lazy
 
 data Year = Year Int
      deriving (Eq, Ord, Generic)
 instance FromJSON Year
 instance ToJSON Year
+
 instance Show Year where
     show (Year year) = 
         if year < 0 then
-            (show . negate $ year) ++ " b.c."
+            (++ " b.c.") . show . negate $ year
         else
             show year
 
@@ -29,7 +32,7 @@ instance Read Year where
         case readMaybe year of
             Just year ->
                 if " b.c." `isPrefixOf` rest then
-                    [(Year $ negate year, drop 5 rest)]
+                    [(Year . negate $ year, drop 5 rest)]
                 else
                     [(Year year, rest)]
             Nothing   -> []
@@ -45,10 +48,12 @@ delta :: Year -> Year -> YearDelta
 (^+) :: Year -> YearDelta -> Year
 (Year a) ^+ (YearDelta b) = Year $ a + b
 
+(^-) :: Year -> YearDelta -> Year
+(Year a) ^- (YearDelta b) = Year $ a - b
+
 data Author = Author {name :: String,
                       birth :: Year,
-                      death :: Maybe Year}
-     deriving (Eq, Generic)
+                      death :: Maybe Year} deriving (Eq, Generic)
 
 instance FromJSON Author
 instance ToJSON Author
@@ -78,79 +83,70 @@ helpString = do
     progName <- getProgName
     return $ "Usage: " ++ progName ++ " action [arguments...]\n"
 
-booksFile :: FilePath
-booksFile = "books.json"
 
-readBooksFile :: IO Lazy.ByteString
-readBooksFile = Lazy.readFile booksFile
+defaultFile :: FilePath
+defaultFile = "books.json"
 
-readBooks :: IO (Either String [Book])
-readBooks = (eitherDecode <$> readBooksFile)
+getFilename :: Map.Map String String -> FilePath
+getFilename = maybe defaultFile id . Map.lookup "data"
 
-split :: Eq a => a -> [a] -> ([a], [a])
-split x (y:ys)
-    | x == y    = ([], ys)
-    | otherwise = (y : ys1, ys2)
-    where (ys1, ys2) = split x ys
-
-split _ [] = ([], [])
-
-getOptions :: [String] -> [(String, String)]
-getOptions = map $ dropFst . split '='
-    where dropFst (x,y) = (drop 2 x, y)
-
-getFilter :: [String] -> (String, String, Maybe Year)
-getFilter arguments =
-    (fromMaybe "" $ getArgument "author",
-     fromMaybe "" $ getArgument "title",
-     getArgument "published" >>= readMaybe :: Maybe Year)
-    where
-        getArgument
-            = liftM fst . lastMay . filteredOptions
-        filteredOptions flag
-            = filter ((== flag) . fst) $ getOptions arguments
+readBooks :: Map.Map String String -> IO (Either String [Book])
+readBooks arguments = 
+        eitherDecode <$> file
+            where file = Lazy.readFile $ getFilename arguments
 
 
-printBooks :: [String] -> IO ()
-printBooks arguments = do
-    let (authorFilter, titleFilter, publishFilter) = getFilter arguments
-    books <- readBooks
+printBooks :: [String] -> Map.Map String String -> IO ()
+printBooks _ arguments = do
+    let authorFilter
+            = liftM (map toLower) $ Map.lookup "author" arguments
+        titleFilter
+            = Map.lookup "title" arguments
+        publishFilter
+            = Map.lookup "published" arguments >>= readMaybe :: Maybe Year
+    books <- readBooks arguments
 
     case books of 
         Left error
             -> putStrLn error
         Right books
             -> mapM_ print $ filter predicate books
-                where predicate book
-                        = authorFilter `isSubsequenceOf` authorName
+                where
+                    predicate book
+                        = maybePredicate
+                            authorFilter (`isSubsequenceOf` authorName)
                           &&
-                          titleFilter `isSubsequenceOf` bookTitle
+                          maybePredicate
+                            titleFilter (`isSubsequenceOf` bookTitle)
                           &&
-                          publishFilter == Nothing
-                          ||
-                          publishFilter == Just publishDate
-                            where authorName = map toLower $ name $ author book
-                                  bookTitle = map toLower $ title book
-                                  publishDate = published book
+                          maybePredicate
+                            publishFilter (== publishDate)
+                        where
+                            authorName = map toLower $ name $ author book
+                            bookTitle = map toLower $ title book
+                            publishDate = published book
+                            maybePredicate (Just toTest) p = p toTest
+                            maybePredicate Nothing _ = True
     return ()
 
-writeBooks :: [Book] -> IO ()
-writeBooks books = 
-    Lazy.writeFile booksFile $ encode $ sort books
+writeBooks :: [Book] -> Map.Map String String -> IO ()
+writeBooks books arguments 
+    = Lazy.writeFile fileName $ encode $ sort books
+        where
+            fileName = getFilename arguments
 
-addBook :: [String] -> IO ()
-addBook (title:published:name:birth:arguments) = do
-    let death = listToMaybe arguments
-    let author = Author name (read birth :: Year) (read <$> death :: Maybe Year)
+addBook :: [String] -> Map.Map String String -> IO ()
+addBook (title:published:name:birth:rest) arguments = do
+
+    let author = Author name (read birth :: Year) (liftM read $ headMay rest :: Maybe Year)
     let book = Book title author $ read published
 
-    current_books <- readBooks
+    current_books <- readBooks arguments
     case current_books of
         Left error  -> do putStrLn error
-        Right books -> do writeBooks (book : books)
+        Right books -> do writeBooks (book : books) arguments
                           putStrLn "Buch wurde erfolgreich hinzugefügt"
-
-addBook _ = do
+addBook _ _ = do
     putStrLn "Nicht genügend Argumente"
     helpString >>= putStr
 
@@ -159,19 +155,31 @@ unknownAction action = do
     putStrLn $ "Unbekannte Aktion: " ++ action
     helpString >>= putStr
 
-dispatch :: String -> [String] -> IO ()
-dispatch "view" = printBooks
-dispatch "add"  = addBook
-dispatch action = const (unknownAction action)
+dispatch :: [String] -> Map.Map String String -> IO ()
+dispatch ("view" : actions) = printBooks actions
+dispatch ("add"  : actions) = addBook actions
+dispatch (action : _)       = const (unknownAction action)
+
+
+split :: Eq a => a -> [a] -> ([a], [a])
+split x (y:ys)
+    | x == y    = ([], ys)
+    | otherwise = (y : ys1, ys2)
+    where (ys1, ys2) = split x ys
+split _ [] = ([], [])
+
+parseParameters :: [String] -> ([String], Map.Map String String)
+parseParameters parameters = (actions, arguments)
+    where
+        arguments = Map.fromList $ map (split '=' . drop 2) argumentList
+        (argumentList, actions) = partition ("--" `isPrefixOf`) parameters 
 
 main :: IO ()
 main = do
-    arguments <- getArgs
-    case arguments of
-        (action:parameters)
-            -> dispatch action parameters
-        []                 
-            -> do
-                putStrLn "Bitte gib eine Aktion an."
-                helpString >>= putStr
-
+    parameters <- getArgs
+    let (actions, arguments) = parseParameters parameters
+    case actions of
+        []
+            -> putStrLn "Bitte gib eine Aktion an."
+        actions
+            -> dispatch actions arguments 
