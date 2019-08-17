@@ -75,7 +75,9 @@ instance ToJSON Book
 
 instance Show Book where
     show (Book title author published)
-        = title ++ " von " ++ (show author) ++ ", erschienen " ++ show published
+        = '>' : title ++ "<"
+          ++ " von " ++ (show author)
+          ++ ", erschienen " ++ show published
 instance Ord Book where
     (Book titleA _ _) `compare` (Book titleB _ _) = titleA `compare` titleB
 
@@ -180,10 +182,7 @@ parseParameters parameters = (actions, arguments)
 
 main :: IO ()
 main = do
-    parameters <- getArgs
-    let (actions, arguments) = parseParameters parameters
+    (actions, arguments) <- liftM parseParameters getArgs
     case actions of
-        []
-            -> putStrLn "Bitte gib eine Aktion an."
-        actions
-            -> dispatch actions arguments 
+        []      -> putStrLn "Bitte gib eine Aktion an."
+        actions -> dispatch actions arguments 
