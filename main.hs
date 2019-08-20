@@ -4,6 +4,7 @@ import Data.Ix
 import Data.Aeson
 import Data.List
 import Data.Maybe
+import qualified Data.Text.ICU as ICU
 import GHC.Generics
 import qualified Data.ByteString.Lazy as Lazy
 import System.IO
@@ -47,8 +48,7 @@ delta :: Year -> Year -> YearDelta
 (Year a) `delta` (Year b) = YearDelta $ a - b
 
 (^+) :: Year -> YearDelta -> Year
-(Year a) ^+ (YearDelta b) = Year $ a + b
-
+(Year a) ^+ (YearDelta b) = Year $ a + b 
 (^-) :: Year -> YearDelta -> Year
 (Year a) ^- (YearDelta b) = Year $ a - b
 
@@ -79,7 +79,10 @@ instance Show Book where
           ++ " von " ++ (show author)
           ++ ", erschienen " ++ show published
 instance Ord Book where
-    (Book titleA _ _) `compare` (Book titleB _ _) = titleA `compare` titleB
+    (Book titleA _ _) `compare` (Book titleB _ _)
+        = ICU.collateIter
+            collator (ICU.fromString titleA) (ICU.fromString titleB)
+        where collator = ICU.collator ICU.Current
 
 helpString :: IO String
 helpString = do
