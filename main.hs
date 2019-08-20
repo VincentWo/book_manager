@@ -116,7 +116,7 @@ printBooks _ arguments = do
         Left error
             -> putStrLn error
         Right books
-            -> mapM_ print $ filter predicate books
+            -> mapM_ prettyPrint $ filter (predicate . snd) $ zip [1..] books
                 where
                     predicate book
                         = maybePredicate
@@ -133,6 +133,8 @@ printBooks _ arguments = do
                             publishDate = published book
                             maybePredicate (Just toTest) p = p toTest
                             maybePredicate Nothing _ = True
+                    prettyPrint (id, book)
+                        = putStrLn $ show id ++ ": " ++ show book
     return ()
 
 writeBooks :: [Book] -> Map.Map String String -> IO ()
@@ -143,7 +145,6 @@ writeBooks books arguments
 
 addBook :: [String] -> Map.Map String String -> IO ()
 addBook (title:published:name:birth:rest) arguments = do
-
     let author = Author name (read birth :: Year) (liftM read $ headMay rest :: Maybe Year)
     let book = Book title author $ read published
 
@@ -156,15 +157,48 @@ addBook _ _ = do
     putStrLn "Nicht genügend Argumente"
     helpString >>= putStr
 
+removeNth :: Integral a => a -> [b] -> [b]
+removeNth _ [] = []
+removeNth 0 (x:xs) = xs
+removeNth n (x:xs) = x : removeNth (n - 1) xs
+
+removeBook :: [String] -> Map.Map String String -> IO ()
+removeBook [toRemove] arguments = do
+    let idToRemove = (subtract 1) . read $ toRemove :: Int
+
+    currentBooks <- readBooks arguments
+    case currentBooks of
+        Left  error -> do putStrLn error
+        Right books -> do writeBooks newBooks arguments
+            where newBooks = removeNth idToRemove books
+
+removeBook _ _ = do
+    putStrLn "Errors: Too many arguments"
+    putStrLn "You can only delete one Book at a time"
+
+{-
+editBook toEdit arguments = do
+    let idToEdit = (subtract 1) . read $ toEdit :: Int
+
+    currentBooks <- readBooks arguments
+    case currentBooks of
+        Left  error -> putStrLn error
+        Right books -> 
+-}
+    
+
+
 unknownAction :: String -> IO ()
 unknownAction action = do
     putStrLn $ "Unbekannte Aktion: " ++ action
     helpString >>= putStr
 
 dispatch :: [String] -> Map.Map String String -> IO ()
-dispatch ("view" : actions) = printBooks actions
-dispatch ("add"  : actions) = addBook actions
-dispatch (action : _)       = const (unknownAction action)
+dispatch ("view"   : actions) = printBooks actions
+dispatch ("add"    : actions) = addBook actions
+dispatch ("remove" : actions) = removeBook actions
+--dispatch ("edit"   : actions) = editBook actions
+dispatch (action   : _)       = const (unknownAction action)
 
 
 split :: Eq a => a -> [a] -> ([a], [a])
