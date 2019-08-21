@@ -65,21 +65,32 @@ instance Show Author where
     show (Author name birth (Just death))
         = name ++ "(*" ++ show birth ++ ", †" ++ show death ++ ")"
 
-data Book = Book {title :: String,
-                  author :: Author,
-                  published :: Year}
+data BookStatus = ToRead | Read | Reading
+    deriving (Eq, Generic, Show)
+
+instance FromJSON BookStatus
+instance ToJSON BookStatus
+
+
+data Book = Book {title     :: String,
+                  author    :: Author,
+                  published :: Year,
+                  status    :: BookStatus}
      deriving (Eq, Generic)
 
 instance FromJSON Book
 instance ToJSON Book
 
 instance Show Book where
-    show (Book title author published)
+    show (Book title author published status)
         = '>' : title ++ "<"
           ++ " von " ++ (show author)
           ++ ", erschienen " ++ show published
+          ++ if status == Read         then " ✓"
+             else if status == Reading then " ◁"
+             else                           ""
 instance Ord Book where
-    (Book titleA _ _) `compare` (Book titleB _ _)
+    (Book titleA _ _ _) `compare` (Book titleB _ _ _)
         = ICU.collateIter
             collator (ICU.fromString titleA) (ICU.fromString titleB)
         where collator = ICU.collator ICU.Current
@@ -149,7 +160,12 @@ writeBooks books arguments
 addBook :: [String] -> Map.Map String String -> IO ()
 addBook (title:published:name:birth:rest) arguments = do
     let author = Author name (read birth :: Year) (liftM read $ headMay rest :: Maybe Year)
-    let book = Book title author $ read published
+
+    let status = if Map.lookup "unread" arguments == Nothing
+                 then Read
+                 else ToRead
+
+    let book = Book title author (read published) status
 
     current_books <- readBooks arguments
     case current_books of
