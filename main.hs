@@ -121,9 +121,12 @@ printBooks _ arguments = do
     let authorFilter
             = liftM (map toLower) $ Map.lookup "author" arguments
         titleFilter
-            = Map.lookup "title" arguments
+            = liftM (map toLower) $ Map.lookup "title" arguments
         publishFilter
             = Map.lookup "published" arguments >>= readMaybe :: Maybe Year
+        statusFilter
+            = liftM (map toLower) $ Map.lookup "status" arguments
+
     books <- readBooks arguments
 
     case books of 
@@ -141,9 +144,13 @@ printBooks _ arguments = do
                           &&
                           maybePredicate
                             publishFilter (== publishDate)
+                          &&
+                          maybePredicate 
+                            statusFilter (== bookStatus)
                         where
-                            authorName = map toLower $ name $ author book
-                            bookTitle = map toLower $ title book
+                            bookStatus  = map toLower $ show $ status book
+                            authorName  = map toLower $ name $ author book
+                            bookTitle   = map toLower $ title book
                             publishDate = published book
                             maybePredicate (Just toTest) p = p toTest
                             maybePredicate Nothing _ = True
