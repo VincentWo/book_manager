@@ -137,10 +137,10 @@ printBooks _ arguments = do
                 where
                     predicate book
                         = maybePredicate
-                            authorFilter (`isSubsequenceOf` authorName)
+                            authorFilter (`isInfixOf` authorName)
                           &&
                           maybePredicate
-                            titleFilter (`isSubsequenceOf` bookTitle)
+                            titleFilter (`isInfixOf` bookTitle)
                           &&
                           maybePredicate
                             publishFilter (== publishDate)
